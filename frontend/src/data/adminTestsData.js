@@ -1,0 +1,151 @@
+export const adminTestStats = [
+  { title: "Total Tests", value: "254", text: "All time", icon: "flask", color: "green" },
+  { title: "Active Tests", value: "218", text: "Enabled", icon: "clipboard", color: "blue" },
+  { title: "Inactive Tests", value: "36", text: "Disabled", icon: "rupee", color: "orange" },
+  { title: "Categories", value: "28", text: "Total Categories", icon: "tag", color: "purple" }
+];
+
+export const adminTestCategories = ["Hematology", "Hormone", "Biochemistry", "Immunology", "Pathology"];
+
+export const adminTests = [
+  {
+    id: 1,
+    testName: "Complete Blood Count (CBC)",
+    testCode: "CBC001",
+    category: "Hematology",
+    price: 400,
+    discountPercent: 10,
+    finalPrice: 360,
+    description: "Complete blood count test for common blood health markers.",
+    sampleType: "Blood",
+    reportTime: "24 hrs",
+    fastingRequired: "No",
+    status: "Active"
+  },
+  {
+    id: 2,
+    testName: "Thyroid Profile (T3, T4, TSH)",
+    testCode: "THY001",
+    category: "Hormone",
+    price: 750,
+    discountPercent: 15,
+    finalPrice: 638,
+    description: "Measures important thyroid hormone levels.",
+    sampleType: "Blood",
+    reportTime: "24 hrs",
+    fastingRequired: "No",
+    status: "Active"
+  },
+  {
+    id: 3,
+    testName: "Blood Sugar Fasting (FBS)",
+    testCode: "BSF001",
+    category: "Biochemistry",
+    price: 120,
+    discountPercent: 0,
+    finalPrice: 120,
+    description: "Fasting blood sugar test for glucose screening.",
+    sampleType: "Blood",
+    reportTime: "Same day",
+    fastingRequired: "Yes",
+    status: "Active"
+  },
+  {
+    id: 4,
+    testName: "Blood Sugar Post Prandial (PPBS)",
+    testCode: "BSPP001",
+    category: "Biochemistry",
+    price: 150,
+    discountPercent: 0,
+    finalPrice: 150,
+    description: "Post-meal blood sugar test.",
+    sampleType: "Blood",
+    reportTime: "Same day",
+    fastingRequired: "No",
+    status: "Active"
+  },
+  {
+    id: 5,
+    testName: "Lipid Profile",
+    testCode: "LIP001",
+    category: "Biochemistry",
+    price: 700,
+    discountPercent: 10,
+    finalPrice: 630,
+    description: "Cholesterol and lipid screening profile.",
+    sampleType: "Blood",
+    reportTime: "24 hrs",
+    fastingRequired: "Yes",
+    status: "Active"
+  },
+  {
+    id: 6,
+    testName: "Liver Function Test (LFT)",
+    testCode: "LFT001",
+    category: "Biochemistry",
+    price: 650,
+    discountPercent: 10,
+    finalPrice: 585,
+    description: "Liver enzymes and function profile.",
+    sampleType: "Blood",
+    reportTime: "24 hrs",
+    fastingRequired: "No",
+    status: "Active"
+  },
+  {
+    id: 7,
+    testName: "Kidney Function Test (KFT)",
+    testCode: "KFT001",
+    category: "Biochemistry",
+    price: 600,
+    discountPercent: 5,
+    finalPrice: 570,
+    description: "Kidney health and renal function profile.",
+    sampleType: "Blood",
+    reportTime: "24 hrs",
+    fastingRequired: "No",
+    status: "Active"
+  },
+  {
+    id: 8,
+    testName: "Vitamin D (25-OH Vitamin D)",
+    testCode: "VITD001",
+    category: "Immunology",
+    price: 1200,
+    discountPercent: 20,
+    finalPrice: 960,
+    description: "Vitamin D level check for deficiency screening.",
+    sampleType: "Blood",
+    reportTime: "24 - 36 hrs",
+    fastingRequired: "No",
+    status: "Active"
+  },
+  {
+    id: 9,
+    testName: "Vitamin B12",
+    testCode: "VB12001",
+    category: "Immunology",
+    price: 950,
+    discountPercent: 10,
+    finalPrice: 855,
+    description: "Vitamin B12 level check.",
+    sampleType: "Blood",
+    reportTime: "24 - 36 hrs",
+    fastingRequired: "No",
+    status: "Inactive"
+  },
+  {
+    id: 10,
+    testName: "Urine Routine & Microscopy",
+    testCode: "URM001",
+    category: "Pathology",
+    price: 200,
+    discountPercent: 0,
+    finalPrice: 200,
+    description: "Routine urine examination and microscopy.",
+    sampleType: "Urine",
+    reportTime: "Same day",
+    fastingRequired: "No",
+    status: "Active"
+  }
+];

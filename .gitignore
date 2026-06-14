@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.local
+dist
+build
+uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+!backend/uploads/prescriptions/.gitkeep
+.npm-cache
+*.log
+npm-debug.log*
