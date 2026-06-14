@@ -717,6 +717,7 @@ const toPlainPermissions = (value = {}) => {
 const toPlainFeatures = (value = {}) => (value instanceof Map ? Object.fromEntries(value) : value || {});
 
 const normalizeAdminStatus = (value) => (["Active", "Inactive", "Suspended"].includes(value) ? value : "Active");
+const isSuperAdminRoleName = (value) => ["super admin", "super-admin", "superadmin"].includes(normalizePermissionValue(value));
 
 const formatUserDate = (value) =>
   value ? new Date(value).toLocaleString("en-IN", { month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
@@ -756,6 +757,12 @@ const ensureAdminRoles = async () => {
   await Promise.all(roleDefaults.map((role) =>
     AdminRole.updateOne({ roleName: role.roleName }, { $setOnInsert: role }, { upsert: true })
   ));
+};
+
+const hasOtherSuperAdmin = async (excludeId = null) => {
+  const query = { role: "admin", adminRole: /^super admin$/i };
+  if (excludeId) query._id = { $ne: excludeId };
+  return Boolean(await User.exists(query));
 };
 
 const roleCounts = async () => {
@@ -854,6 +861,9 @@ export const createAdminUser = asyncHandler(async (req, res) => {
 
   const payload = await normalizeAdminPayload(req.body);
   if (!payload.email || !payload.fullName) return res.status(400).json({ success: false, message: "Full name and email are required." });
+  if (isSuperAdminRoleName(payload.adminRole) && await hasOtherSuperAdmin()) {
+    return res.status(409).json({ success: false, message: "Super Admin already exists." });
+  }
   payload.passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
   const user = await User.create(payload);
@@ -878,6 +888,9 @@ export const updateAdminUser = asyncHandler(async (req, res) => {
   if (!existing || existing.role !== "admin") return res.status(404).json({ success: false, message: "User not found." });
 
   const payload = await normalizeAdminPayload(req.body, existing);
+  if (isSuperAdminRoleName(payload.adminRole) && await hasOtherSuperAdmin(existing._id)) {
+    return res.status(409).json({ success: false, message: "Super Admin already exists." });
+  }
   Object.assign(existing, payload);
   await existing.save();
 

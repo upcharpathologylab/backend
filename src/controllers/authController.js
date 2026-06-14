@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import AdminRole from "../models/AdminRole.js";
 import User from "../models/User.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { ensureDefaultAdmin } from "../utils/adminSeed.js";
 
 const dbReady = () => mongoose.connection.readyState === 1;
 
@@ -109,6 +110,7 @@ export const login = asyncHandler(async (req, res) => {
 
 export const adminLogin = asyncHandler(async (req, res) => {
   if (!requireDatabase(res)) return;
+  await ensureDefaultAdmin();
 
   const username = String(req.body.username || "").trim().toLowerCase();
   const { password } = req.body;
@@ -117,7 +119,10 @@ export const adminLogin = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: "Username and password are required." });
   }
 
-  const user = await User.findOne({ username, role: "admin" });
+  const user = await User.findOne({
+    role: "admin",
+    $or: [{ username }, { email: username }]
+  });
 
   if (!user || !user.isActive || user.accountStatus === "Suspended") {
     return res.status(401).json({ success: false, message: "Invalid username or password." });
