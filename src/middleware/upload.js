@@ -1,8 +1,10 @@
 import fs from "fs";
 import multer from "multer";
 import path from "path";
+import { fileURLToPath } from "url";
 
-export const uploadRootDir = path.join(process.cwd(), "uploads");
+const backendRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const uploadRootDir = path.join(backendRootDir, "uploads");
 const uploadDir = path.join(uploadRootDir, "prescriptions");
 const reportUploadDir = path.join(uploadRootDir, "reports");
 export const contentUploadDir = path.join(uploadRootDir, "content");
