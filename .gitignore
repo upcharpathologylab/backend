@@ -10,3 +10,4 @@ backend/uploads/*
 .npm-cache
 *.log
 npm-debug.log*
+/frontend
