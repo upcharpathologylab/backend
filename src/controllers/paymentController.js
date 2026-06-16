@@ -68,7 +68,8 @@ function getBookingBody(req) {
 
 function getItemIdentity(item = {}) {
   return {
-    id: String(item._id || item.id || item.testId || item.packageId || "").trim(),
+    id: String(item.itemId || item._id || item.id || item.testId || item.packageId || "").trim(),
+    type: String(item.itemType || item.type || item.resultType || "").trim().toLowerCase(),
     name: String(item.name || item.title || item.testName || item.packageName || "").trim().toLowerCase()
   };
 }
@@ -77,33 +78,62 @@ function catalogPrice(record = {}) {
   return numeric(record.finalPrice || record.discountedPrice || record.price || record.originalPrice);
 }
 
-async function calculateBookingAmount(bookingBody = {}) {
-  const items = parseJson(bookingBody.items, []);
+async function calculateBookingAmount(bookingBody = {}, user) {
+  let items = parseJson(bookingBody.items ?? bookingBody.cartItems ?? bookingBody.orderItems ?? bookingBody.selectedItems, []);
   const appliedCoupon = parseJson(bookingBody.appliedCoupon, null);
+
+  if ((!Array.isArray(items) || !items.length) && bookingBody.itemId) {
+    items = [{
+      itemId: bookingBody.itemId,
+      itemType: bookingBody.itemType || bookingBody.type,
+      name: bookingBody.name || bookingBody.title,
+      quantity: bookingBody.quantity || 1
+    }];
+  }
+
+  if ((!Array.isArray(items) || !items.length) && bookingBody.bookingId) {
+    const existingBooking = await BookingLead.findOne({ bookingId: bookingBody.bookingId, userId: user?._id }).lean();
+    if (existingBooking) {
+      items = Array.isArray(existingBooking.items) ? existingBooking.items : [];
+    }
+  }
 
   if (!Array.isArray(items) || !items.length) {
     throw setErrorStatus(new Error("Selected test or package is required before payment."), 400);
   }
 
   const [tests, packages] = await Promise.all([
-    Test.find({ isActive: { $ne: false }, status: { $ne: "Inactive" } }).select("name testName finalPrice discountedPrice price originalPrice").lean(),
-    Package.find({ isActive: { $ne: false }, status: { $ne: "Inactive" } }).select("name packageName finalPrice discountedPrice price originalPrice").lean()
+    Test.find({ isActive: { $ne: false }, status: { $ne: "Inactive" } }).select("name testName testCode finalPrice discountedPrice price originalPrice").lean(),
+    Package.find({ isActive: { $ne: false }, status: { $ne: "Inactive" } }).select("name packageName packageCode finalPrice discountedPrice price originalPrice").lean()
   ]);
-  const byId = new Map();
-  const byName = new Map();
+  const byId = { test: new Map(), package: new Map(), all: new Map() };
+  const byName = { test: new Map(), package: new Map(), all: new Map() };
 
-  [...tests, ...packages].forEach((record) => {
+  const addCatalogRecord = (record, type) => {
     const value = {
+      type,
       price: catalogPrice(record),
       name: record.name || record.testName || record.packageName || "Selected Item"
     };
-    byId.set(String(record._id), value);
-    [record.name, record.testName, record.packageName].filter(Boolean).forEach((name) => byName.set(String(name).trim().toLowerCase(), value));
-  });
+    [record._id, record.id, record.testCode, record.packageCode].filter(Boolean).forEach((id) => {
+      byId[type].set(String(id), value);
+      byId.all.set(String(id), value);
+    });
+    [record.name, record.testName, record.packageName].filter(Boolean).forEach((name) => {
+      byName[type].set(String(name).trim().toLowerCase(), value);
+      byName.all.set(String(name).trim().toLowerCase(), value);
+    });
+  };
+
+  tests.forEach((record) => addCatalogRecord(record, "test"));
+  packages.forEach((record) => addCatalogRecord(record, "package"));
 
   const subtotal = items.reduce((total, item) => {
     const identity = getItemIdentity(item);
-    const catalogItem = (identity.id && byId.get(identity.id)) || (identity.name && byName.get(identity.name));
+    const type = identity.type === "package" ? "package" : identity.type === "test" ? "test" : "all";
+    const catalogItem =
+      (identity.id && (byId[type].get(identity.id) || byId.all.get(identity.id))) ||
+      (identity.name && (byName[type].get(identity.name) || byName.all.get(identity.name)));
 
     if (!catalogItem || catalogItem.price <= 0) {
       const error = new Error(`Unable to verify price for ${item.name || item.title || "selected item"}.`);
@@ -114,8 +144,10 @@ async function calculateBookingAmount(bookingBody = {}) {
     return total + catalogItem.price * Math.max(1, numeric(item.quantity, 1));
   }, 0);
 
+  const cartDiscount = items.length ? Math.floor(subtotal * 0.5) : 0;
   let couponDiscount = 0;
   const couponCode = String(bookingBody.couponCode || appliedCoupon?.couponCode || "").trim().toUpperCase();
+  const couponBaseAmount = Math.max(0, subtotal - cartDiscount);
 
   if (couponCode) {
     const coupon = await Coupon.findOne({ couponCode }).lean();
@@ -132,16 +164,17 @@ async function calculateBookingAmount(bookingBody = {}) {
       }
     }
 
-    couponDiscount = couponDiscountAmount(coupon, subtotal);
+    couponDiscount = Math.min(couponDiscountAmount(coupon, subtotal), couponBaseAmount);
   }
 
-  const totalPayable = Math.max(0, subtotal - couponDiscount);
+  const totalPayable = Math.max(0, subtotal - cartDiscount - couponDiscount);
   const amountPaise = normalizeAmountToPaise(totalPayable, "Unable to calculate a valid booking amount.");
 
   return {
     amount: amountPaise / 100,
     amountPaise,
     subtotal,
+    discount: cartDiscount,
     couponDiscount,
     items
   };
@@ -166,7 +199,7 @@ function timingSafeEqualString(left, right) {
 export const createRazorpayOrder = asyncHandler(async (req, res) => {
   const { keyId, keySecret } = getRazorpayCredentials();
   const bookingBody = getBookingBody(req);
-  const { amountPaise } = await calculateBookingAmount(bookingBody);
+  const { amountPaise } = await calculateBookingAmount(bookingBody, req.user);
   const currency = String(req.body.currency || "INR").toUpperCase();
   const receipt = sanitizeReceipt(req.body.receipt);
   const notes = sanitizeNotes(req.body.notes);
@@ -204,7 +237,7 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
   }
 
   const bookingBody = req.body.bookingData || req.body.booking || req.body;
-  const { amount, amountPaise, subtotal, couponDiscount } = await calculateBookingAmount(bookingBody);
+  const { amount, amountPaise, subtotal, discount, couponDiscount } = await calculateBookingAmount(bookingBody, req.user);
   const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
   const order = await razorpay.orders.fetch(orderId);
 
@@ -241,10 +274,13 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
         ...bookingBody,
         totalPayable: amount,
         subtotal,
+        discount,
         couponDiscount,
         summary: JSON.stringify({
           ...parseJson(bookingBody.summary, {}),
           subtotal,
+          discount,
+          totalSavings: discount + couponDiscount,
           couponDiscount,
           totalPayable: amount
         }),

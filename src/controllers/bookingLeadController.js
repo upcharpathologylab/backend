@@ -145,6 +145,8 @@ export const createBookingLeadRecord = async ({ body = {}, user, file = null, ov
   const mobileNumber = mobile;
   const lead = await BookingLead.create({
     bookingId: body.bookingId || generateBookingId(),
+    cartId: body.cartId || "",
+    orderId: body.orderId || "",
     bookingType: "User",
     userId: user._id,
     fullName: customerName,
