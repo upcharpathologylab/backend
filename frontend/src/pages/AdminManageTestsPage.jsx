@@ -32,6 +32,8 @@ const normalizeAdminTest = (test) => {
     testName: test.testName || test.name || "Untitled Test",
     testCode: test.testCode || "",
     category: test.category || "Pathology",
+    image: test.image || test.testImage || "",
+    testImage: test.testImage || test.image || "",
     price,
     discountPercent,
     finalPrice,
@@ -129,7 +131,7 @@ function AdminManageTestsPage() {
     const recordId = String(values._id || values.id || "");
     const exists = tests.some((test) => String(test._id || test.id) === recordId);
     try {
-      const saved = exists && values._id ? await updateAdminResource("tests", values._id || values.id, values) : await createAdminResource("tests", values);
+      const saved = exists ? await updateAdminResource("tests", values._id || values.id, values) : await createAdminResource("tests", values);
       const normalized = normalizeAdminTest(saved);
       setTests((current) => {
         if (exists) return current.map((test) => (String(test._id || test.id) === recordId ? normalized : test));

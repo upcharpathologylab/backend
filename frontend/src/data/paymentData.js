@@ -18,20 +18,8 @@ export const paymentMethods = [
     icon: "Landmark"
   },
   {
-    id: "wallet",
-    label: "Wallets",
-    subtitle: "Pay using wallet",
-    icon: "WalletCards"
-  },
-  {
-    id: "emi",
-    label: "EMI",
-    subtitle: "Easy EMI options",
-    icon: "BadgeIndianRupee"
-  },
-  {
-    id: "paylater",
-    label: "Pay Later",
+    id: "cod",
+    label: "Cash on Delivery",
     subtitle: "Pay at your convenience",
     icon: "ReceiptText"
   }

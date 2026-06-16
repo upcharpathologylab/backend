@@ -8,6 +8,6 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 !backend/uploads/prescriptions/.gitkeep
 .npm-cache
+/frontend/fontend/
 *.log
 npm-debug.log*
-/frontend

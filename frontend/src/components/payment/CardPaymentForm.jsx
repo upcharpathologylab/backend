@@ -5,7 +5,7 @@ import { price } from "../../utils.js";
 const fieldClass =
   "h-12 w-full rounded-md border border-blue-100 bg-white px-4 text-sm font-semibold text-navy-800 outline-none transition placeholder:text-navy-400 focus:border-upchar-blue focus:ring-4 focus:ring-blue-100";
 
-function PaymentButton({ amount, loading, payLater = false }) {
+function PaymentButton({ amount, loading, cashOnDelivery = false }) {
   return (
     <button
       type="submit"
@@ -13,7 +13,7 @@ function PaymentButton({ amount, loading, payLater = false }) {
       className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-md bg-upchar-green px-5 py-4 text-base font-black text-white shadow-lg shadow-green-900/15 transition hover:bg-upchar-greenDark disabled:cursor-wait disabled:opacity-80"
     >
       <LockKeyhole className="h-5 w-5" />
-      {loading ? "Processing Payment..." : payLater ? "Confirm Booking" : `Pay ${price(amount)}`}
+      {loading ? "Processing Payment..." : cashOnDelivery ? "Confirm Booking" : `Pay ${price(amount)}`}
     </button>
   );
 }
@@ -111,51 +111,15 @@ function AlternatePaymentFields({ selectedMethod, amount, loading, customer, onC
     );
   }
 
-  if (selectedMethod === "wallet") {
-    return (
-      <>
-        <div className="mt-7">
-          <label className="text-sm font-black text-navy-800" htmlFor="wallet-name">
-            Select Wallet
-          </label>
-          <select id="wallet-name" className={`${fieldClass} mt-2`}>
-            <option>Paytm Wallet</option>
-            <option>PhonePe Wallet</option>
-            <option>Amazon Pay</option>
-          </select>
-        </div>
-        <PaymentButton amount={amount} loading={loading} />
-      </>
-    );
-  }
-
-  if (selectedMethod === "emi") {
-    return (
-      <>
-        <div className="mt-7">
-          <label className="text-sm font-black text-navy-800" htmlFor="emi-option">
-            Select EMI Option
-          </label>
-          <select id="emi-option" className={`${fieldClass} mt-2`}>
-            <option>3 months no-cost EMI</option>
-            <option>6 months EMI</option>
-            <option>9 months EMI</option>
-          </select>
-        </div>
-        <PaymentButton amount={amount} loading={loading} />
-      </>
-    );
-  }
-
   return (
     <>
       <div className="mt-7 rounded-lg border border-blue-100 bg-blue-50/50 p-5">
-        <p className="text-base font-black text-navy-900">{method?.label || "Pay Later"}</p>
+        <p className="text-base font-black text-navy-900">{method?.label || "Cash on Delivery"}</p>
         <p className="mt-2 text-sm font-semibold leading-6 text-navy-700">
           Continue to confirm your booking and complete payment at your convenience.
         </p>
       </div>
-      <PaymentButton amount={amount} loading={loading} payLater={selectedMethod === "paylater"} />
+      <PaymentButton amount={amount} loading={loading} cashOnDelivery={selectedMethod === "cod"} />
     </>
   );
 }

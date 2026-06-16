@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { createBookingLead, createRazorpayOrder, getUserAddresses, getUserProfile, verifyRazorpayPayment } from "../api/api.js";
 import CardPaymentForm from "../components/payment/CardPaymentForm.jsx";
@@ -17,8 +17,7 @@ import {
   customerDetails,
   getCheckoutData,
   saveBookingData,
-  saveCheckoutData,
-  savePaymentFailureData
+  saveCheckoutData
 } from "../utils/checkout.js";
 
 const RAZORPAY_CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
@@ -82,7 +81,7 @@ function openBookingWhatsApp(booking, summary) {
   const whatsappNumber = String(fallbackHomeData.siteSettings.whatsappNumber || "8882753539").replace(/\D/g, "");
   const itemLines = booking.items.map((item) => `- ${item.name || item.title} x ${item.quantity}`).join("\n");
   const message = [
-    "New Pay Later Booking",
+    "New Cash on Delivery Booking",
     `Booking ID: ${booking.bookingId}`,
     `Customer: ${booking.customer.name}`,
     `Mobile: ${booking.customer.phone}`,
@@ -92,9 +91,9 @@ function openBookingWhatsApp(booking, summary) {
     `Subtotal: Rs. ${summary.subtotal}`,
     `Discount: Rs. ${summary.totalSavings}`,
     `Total Payable: Rs. ${summary.totalPayable}`,
-    "Payment Method: Pay Later",
-    "Payment Status: Pending",
-    "Booking Status: Pending Confirmation",
+    "Payment Method: Cash on Delivery",
+    "Payment Status: COD",
+    "Booking Status: Confirmed",
     "Upchar Pathology Lab"
   ].join("\n");
   window.open(`https://wa.me/91${whatsappNumber.slice(-10)}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
@@ -117,8 +116,15 @@ const addressText = (address = {}) =>
     .filter(Boolean)
     .join(", ");
 
+const razorpayMethodOptions = {
+  card: { card: true },
+  upi: { upi: true },
+  netbanking: { netbanking: true }
+};
+
 function PaymentPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [selectedMethod, setSelectedMethod] = useState("card");
   const [loading, setLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
@@ -127,7 +133,8 @@ function PaymentPage() {
 
   useEffect(() => {
     document.title = "Payment | Upchar Pathology";
-    const data = getCheckoutData();
+    const routeData = location.state?.checkoutData || location.state?.checkout || location.state?.cart || null;
+    const data = routeData?.items?.length ? saveCheckoutData(routeData.items, routeData.summary, routeData.appliedCoupon) : getCheckoutData();
     setCheckoutData(data);
     setCustomer(getCheckoutCustomer());
     if (data.items.length) {
@@ -136,7 +143,7 @@ function PaymentPage() {
     if (!getStoredUser()) {
       navigate(`/?auth=signin&returnTo=${encodeURIComponent("/payment")}`, { replace: true });
     }
-  }, []);
+  }, [location.state, navigate]);
 
   const paymentMode = useMemo(() => {
     const method = paymentMethods.find((item) => item.id === selectedMethod);
@@ -144,24 +151,19 @@ function PaymentPage() {
     if (method.id === "upi") return "UPI";
     return method.label;
   }, [selectedMethod]);
+  const paymentItems = useMemo(() => checkoutData.items || [], [checkoutData.items]);
 
   const handlePayment = async () => {
-    if (!checkoutData.items.length || loading) return;
+    if (!paymentItems.length || loading) return;
 
     if (!getStoredUser()) {
-      saveCheckoutData(checkoutData.items, checkoutData.summary);
+      saveCheckoutData(paymentItems, checkoutData.summary);
       navigate(`/?auth=signin&returnTo=${encodeURIComponent("/payment")}`);
       return;
     }
 
     setLoading(true);
     setPaymentError("");
-
-    if (selectedMethod !== "paylater") {
-      setPaymentError("Online payment options are coming soon. Please select Pay Later to confirm your booking.");
-      setLoading(false);
-      return;
-    }
 
     try {
       const [serverProfile, serverAddresses] = await Promise.all([
@@ -180,8 +182,14 @@ function PaymentPage() {
         pincode: primaryAddress?.pincode || "",
         city: primaryAddress?.city || ""
       };
-      const selectedTestOrPackage = checkoutData.items.map((item) => `${item.name || item.title} x ${item.quantity}`).join(", ");
-      const response = await createBookingLead({
+      const selectedTestOrPackage = paymentItems.map((item) => `${item.name || item.title} x ${item.quantity}`).join(", ");
+      const payloadItems = paymentItems.map((item) => ({
+        ...item,
+        itemId: item.itemId || item._id || item.id || item.testId || item.packageId,
+        itemType: item.itemType || item.type || "test",
+        payableAmount: Number(item.price || item.discountedPrice || item.finalPrice || 0) * Number(item.quantity || 1)
+      }));
+      const bookingPayload = {
         fullName: bookingCustomer.name,
         mobile: bookingCustomer.phone.replace(/\D/g, "").slice(-10),
         email: bookingCustomer.email,
@@ -192,9 +200,12 @@ function PaymentPage() {
         timeSlot: bookingCustomer.timeSlot,
         city: bookingCustomer.city || "",
         selectedTestOrPackage,
-        items: JSON.stringify(checkoutData.items),
+        items: JSON.stringify(payloadItems),
         summary: JSON.stringify(checkoutData.summary),
         appliedCoupon: JSON.stringify(checkoutData.appliedCoupon || null),
+        cartId: checkoutData.cartId || "",
+        bookingId: checkoutData.bookingId || "",
+        orderId: checkoutData.orderId || "",
         quantity: checkoutData.summary.itemCount,
         subtotal: checkoutData.summary.subtotal,
         discount: checkoutData.summary.totalSavings,
@@ -202,22 +213,105 @@ function PaymentPage() {
         couponName: checkoutData.appliedCoupon?.couponName || checkoutData.appliedCoupon?.title || "",
         couponDiscount: checkoutData.summary.couponDiscount,
         totalPayable: checkoutData.summary.totalPayable,
-        paymentMethod: "Pay Later",
-        paymentStatus: "Pending",
-        bookingStatus: "Pending Confirmation",
-        source: "pay-later-checkout"
+        payableAmount: checkoutData.summary.totalPayable
+      };
+
+      if (selectedMethod !== "cod") {
+        const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+
+        if (!razorpayKey) {
+          throw new Error("Razorpay key is not configured.");
+        }
+
+        const razorpayBookingData = {
+          ...bookingPayload,
+          paymentMethod: paymentMode,
+          source: "razorpay-checkout"
+        };
+        const order = await createRazorpayOrder({
+          currency: "INR",
+          receipt: `upchar_${Date.now()}`,
+          notes: {
+            itemCount: checkoutData.summary.itemCount,
+            paymentMode,
+            source: "checkout-page",
+            cartId: checkoutData.cartId || "",
+            bookingId: checkoutData.bookingId || "",
+            orderId: checkoutData.orderId || ""
+          },
+          bookingData: razorpayBookingData
+        });
+
+        await loadRazorpayCheckout();
+
+        const paymentResponse = await openRazorpayCheckout({
+          key: razorpayKey,
+          amount: order.amount,
+          currency: order.currency,
+          name: "Upchar Pathology",
+          description: "Lab test booking payment",
+          order_id: order.order_id || order.orderId,
+          prefill: {
+            name: bookingCustomer.name,
+            email: bookingCustomer.email,
+            contact: bookingCustomer.phone.replace(/\D/g, "")
+          },
+          notes: {
+            receipt: order.receipt,
+            paymentMode
+          },
+          method: razorpayMethodOptions[selectedMethod],
+          theme: {
+            color: "#099447"
+          }
+        });
+
+        const verification = await verifyRazorpayPayment({
+          razorpay_order_id: paymentResponse.razorpay_order_id,
+          razorpay_payment_id: paymentResponse.razorpay_payment_id,
+          razorpay_signature: paymentResponse.razorpay_signature,
+          paymentMethod: paymentMode,
+          bookingData: razorpayBookingData
+        });
+
+        const booking = createBookingData({
+          items: paymentItems,
+          summary: checkoutData.summary,
+          status: "paid",
+          paymentMode,
+          paymentId: verification.paymentId,
+          razorpayOrderId: verification.orderId,
+          bookingId: verification.booking?.bookingId,
+          bookingStatus: "Confirmed",
+          customer: bookingCustomer
+        });
+
+        saveBookingData(booking);
+        navigate("/booking-confirmation");
+        return;
+      }
+
+      const response = await createBookingLead({
+        ...bookingPayload,
+        paymentMethod: "Cash on Delivery",
+        paymentStatus: "COD",
+        bookingStatus: "Confirmed",
+        source: "cash-on-delivery-checkout"
       });
 
-      const booking = createBookingData({
-        items: checkoutData.items,
-        summary: checkoutData.summary,
-        status: "pending",
-        paymentMode: "Pay Later",
-        paymentId: "Pay Later",
-        bookingId: response.data?.bookingId,
-        bookingStatus: "Pending Confirmation",
-        customer: bookingCustomer
-      });
+      const booking = {
+        ...createBookingData({
+          items: paymentItems,
+          summary: checkoutData.summary,
+          status: "pending",
+          paymentMode: "Cash on Delivery",
+          paymentId: "COD",
+          bookingId: response.data?.bookingId,
+          bookingStatus: "Confirmed",
+          customer: bookingCustomer
+        }),
+        paymentStatus: "COD"
+      };
 
       saveBookingData(booking);
       openBookingWhatsApp(booking, checkoutData.summary);
@@ -227,83 +321,6 @@ function PaymentPage() {
       setPaymentError(getPaymentErrorMessage(error));
       setLoading(false);
       return;
-    }
-
-    let checkoutOpened = false;
-
-    try {
-      const order = await createRazorpayOrder({
-        amount: checkoutData.summary.totalPayable,
-        currency: "INR",
-        receipt: `upchar_${Date.now()}`,
-        notes: {
-          itemCount: checkoutData.summary.itemCount,
-          paymentMode,
-          source: "checkout-page"
-        }
-      });
-
-      await loadRazorpayCheckout();
-      checkoutOpened = true;
-
-      const paymentResponse = await openRazorpayCheckout({
-        key: order.keyId,
-        amount: order.amount,
-        currency: order.currency,
-        name: "Upchar Pathology",
-        description: "Lab test booking payment",
-        order_id: order.orderId,
-        prefill: {
-          name: customerDetails.name,
-          email: customerDetails.email,
-          contact: customerDetails.phone.replace(/\D/g, "")
-        },
-        notes: {
-          receipt: order.receipt,
-          paymentMode
-        },
-        theme: {
-          color: "#099447"
-        }
-      });
-
-      const verification = await verifyRazorpayPayment({
-        razorpay_order_id: paymentResponse.razorpay_order_id,
-        razorpay_payment_id: paymentResponse.razorpay_payment_id,
-        razorpay_signature: paymentResponse.razorpay_signature
-      });
-
-      const booking = createBookingData({
-        items: checkoutData.items,
-        summary: checkoutData.summary,
-        status: "paid",
-        paymentMode,
-        paymentId: verification.paymentId,
-        razorpayOrderId: verification.orderId
-      });
-
-      saveBookingData(booking);
-      navigate("/booking-confirmation");
-    } catch (error) {
-      const message = getPaymentErrorMessage(error);
-
-      if (error.cancelled || !checkoutOpened) {
-        setPaymentError(message);
-        return;
-      }
-
-      const failedBooking = createBookingData({
-        items: checkoutData.items,
-        summary: checkoutData.summary,
-        status: "failed",
-        paymentMode,
-        failureReason: message
-      });
-
-      savePaymentFailureData(failedBooking);
-      navigate("/payment-failed");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -340,7 +357,7 @@ function PaymentPage() {
             </div>
           ) : null}
 
-          {summary && checkoutData.items.length ? (
+          {summary && paymentItems.length ? (
             <>
               <div className="mt-7 grid gap-6 xl:grid-cols-[1fr_390px]">
                 <section className="rounded-lg border border-blue-100 bg-white p-5 shadow-sm lg:p-6">
@@ -361,7 +378,7 @@ function PaymentPage() {
                   </div>
                 </section>
 
-                <PaymentOrderSummary items={checkoutData.items} summary={summary} />
+                <PaymentOrderSummary items={paymentItems} summary={summary} />
               </div>
 
               <PaymentTrustSection />

@@ -134,9 +134,9 @@ function BookingMapSection({ data, content, modal = false, tests = [], packages 
         }),
         totalPayable: total,
         quantity: selectedItems.length,
-        paymentMethod: "Pay Later",
-        paymentStatus: "Pending",
-        bookingStatus: "Pending"
+        paymentMethod: "Cash on Delivery",
+        paymentStatus: "COD",
+        bookingStatus: "Confirmed"
       });
       const booking = saved?.data || saved;
       const prescriptionLink = assetUrl(booking?.prescriptionFile || "");

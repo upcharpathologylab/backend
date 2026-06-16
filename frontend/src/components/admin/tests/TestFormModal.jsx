@@ -41,6 +41,8 @@ function TestFormModal({ categories, test, onClose, onSave }) {
   const [values, setValues] = useState(() => ({
     ...blankTest,
     ...(test || {}),
+    image: test?.image || test?.testImage || "",
+    testImage: test?.testImage || test?.image || "",
     price: (test?.price ?? test?.originalPrice ?? "").toString(),
     discountPercent: (test?.discountPercent ?? "0").toString(),
     rating: (test?.rating ?? "4.6").toString(),
@@ -94,11 +96,16 @@ function TestFormModal({ categories, test, onClose, onSave }) {
 
   const submit = (event) => {
     event.preventDefault();
+    if (uploadingImage) return;
     if (!validate()) return;
+
+    const image = values.testImage || values.image || "";
 
     onSave({
       ...values,
       id: test?.id || Date.now(),
+      image,
+      testImage: image,
       price: Number(values.price),
       discountPercent: Number(values.discountPercent || 0),
       finalPrice,

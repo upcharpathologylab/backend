@@ -41,7 +41,7 @@ export const fallbackHomeData = {
       { label: "View Packages", href: "#packages", variant: "outline" }
     ],
     offerText: "UP TO 60% OFF on selected health packages",
-    image: image("photo-1576091160550-2173dba999ef", 1100)
+    image: "/images/home-banner.png"
   },
   govtPanels: [
     "CGHS (Central Government Health Scheme)",

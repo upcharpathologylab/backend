@@ -94,30 +94,31 @@ export const buildBookingDetailShape = (booking = {}) => {
   };
 };
 
-export const createBookingLead = asyncHandler(async (req, res) => {
+export const createBookingLeadRecord = async ({ body = {}, user, file = null, overrides = {} }) => {
   if (!dbReady()) {
-    return res.status(503).json({
-      success: false,
-      message: "Database is not connected. Please configure MongoDB before saving booking leads."
-    });
+    const error = new Error("Database is not connected. Please configure MongoDB before saving booking leads.");
+    error.statusCode = 503;
+    throw error;
   }
 
-  if (!req.user?._id) {
-    return res.status(401).json({ success: false, message: "Please sign in before booking." });
+  if (!user?._id) {
+    const error = new Error("Please sign in before booking.");
+    error.statusCode = 401;
+    throw error;
   }
 
-  const { selectedTestOrPackage, source } = req.body;
+  const { selectedTestOrPackage, source } = body;
   const primaryAddress =
-    (await Address.findOne({ userId: req.user._id, isPrimary: true }).lean()) ||
-    (await Address.findOne({ userId: req.user._id }).sort({ updatedAt: -1 }).lean());
-  const fullName = req.user.fullName || "";
-  const mobile = normalizePhone(req.user.phone);
+    (await Address.findOne({ userId: user._id, isPrimary: true }).lean()) ||
+    (await Address.findOne({ userId: user._id }).sort({ updatedAt: -1 }).lean());
+  const fullName = user.fullName || "";
+  const mobile = normalizePhone(user.phone);
   const savedAddress = primaryAddress ? addressText(primaryAddress) : "";
   const savedPincode = primaryAddress?.pincode || "";
   const errors = {};
-  const items = parseJson(req.body.items, []);
-  const summary = parseJson(req.body.summary, {});
-  const appliedCoupon = parseJson(req.body.appliedCoupon, null);
+  const items = parseJson(body.items, []);
+  const summary = parseJson(body.summary, {});
+  const appliedCoupon = parseJson(body.appliedCoupon, null);
   const itemNames = Array.isArray(items)
     ? items.map((item) => `${item.name || item.title || "Item"} x ${Number(item.quantity || 1)}`).join(", ")
     : "";
@@ -131,49 +132,70 @@ export const createBookingLead = asyncHandler(async (req, res) => {
     console.error("Booking validation failed:", {
       errors,
       source,
-      userId: String(req.user._id),
-      receivedFields: Object.keys(req.body || {})
+      userId: String(user._id),
+      receivedFields: Object.keys(body || {})
     });
-    return res.status(400).json({ success: false, message: Object.values(errors).join(" "), errors });
+    const error = new Error(Object.values(errors).join(" "));
+    error.statusCode = 400;
+    error.errors = errors;
+    throw error;
   }
 
   const customerName = fullName.trim();
   const mobileNumber = mobile;
   const lead = await BookingLead.create({
-    bookingId: req.body.bookingId || generateBookingId(),
+    bookingId: body.bookingId || generateBookingId(),
+    cartId: body.cartId || "",
+    orderId: body.orderId || "",
     bookingType: "User",
-    userId: req.user._id,
+    userId: user._id,
     fullName: customerName,
     customerName,
     mobile: mobileNumber,
     mobileNumber,
-    email: req.user.email || "",
+    email: user.email || "",
     address: savedAddress,
     pincode: savedPincode,
-    collectionType: req.body.collectionType || "Home Collection",
-    collectionDate: req.body.collectionDate || req.body.date || "",
-    timeSlot: req.body.timeSlot || "",
+    collectionType: body.collectionType || "Home Collection",
+    collectionDate: body.collectionDate || body.date || "",
+    timeSlot: body.timeSlot || "",
     city: primaryAddress?.city || "",
     selectedTestOrPackage: selectedItems,
     items,
-    quantity: numeric(req.body.quantity ?? summary.itemCount, 1),
-    subtotal: numeric(req.body.subtotal ?? summary.subtotal),
-    discount: numeric(req.body.discount ?? summary.totalSavings ?? (numeric(summary.discount) + numeric(summary.couponDiscount))),
-    couponCode: req.body.couponCode || appliedCoupon?.couponCode || "",
-    couponName: req.body.couponName || appliedCoupon?.couponName || appliedCoupon?.title || "",
-    couponDiscount: numeric(req.body.couponDiscount ?? summary.couponDiscount ?? appliedCoupon?.discountAmount),
+    quantity: numeric(body.quantity ?? summary.itemCount, 1),
+    subtotal: numeric(body.subtotal ?? summary.subtotal),
+    discount: numeric(body.discount ?? summary.totalSavings ?? (numeric(summary.discount) + numeric(summary.couponDiscount))),
+    couponCode: body.couponCode || appliedCoupon?.couponCode || "",
+    couponName: body.couponName || appliedCoupon?.couponName || appliedCoupon?.title || "",
+    couponDiscount: numeric(body.couponDiscount ?? summary.couponDiscount ?? appliedCoupon?.discountAmount),
     appliedCoupon,
-    totalPayable: numeric(req.body.totalPayable ?? summary.totalPayable),
-    paymentMethod: req.body.paymentMethod || "Pay Later",
-    paymentStatus: req.body.paymentStatus || "Pending",
-    bookingStatus: req.body.bookingStatus || "Pending Confirmation",
+    totalPayable: numeric(overrides.totalPayable ?? body.totalPayable ?? summary.totalPayable),
+    paymentMethod: overrides.paymentMethod || body.paymentMethod || "Pay Later",
+    paymentStatus: overrides.paymentStatus || body.paymentStatus || "Pay Later",
+    bookingStatus: overrides.bookingStatus || body.bookingStatus || "Confirmed",
     source: source || "home-page",
-    prescriptionFile: req.file ? `/uploads/prescriptions/${req.file.filename}` : ""
+    paymentId: overrides.paymentId || body.paymentId || "",
+    paymentProvider: overrides.paymentProvider || body.paymentProvider || "",
+    razorpay_order_id: overrides.razorpay_order_id || body.razorpay_order_id || "",
+    razorpay_payment_id: overrides.razorpay_payment_id || body.razorpay_payment_id || "",
+    paidAmount: numeric(overrides.paidAmount ?? body.paidAmount),
+    paidAt: overrides.paidAt || body.paidAt || null,
+    prescriptionFile: file ? `/uploads/prescriptions/${file.filename}` : ""
   });
 
   if (lead.couponCode) {
     await Coupon.updateOne({ couponCode: lead.couponCode }, { $inc: { used: 1 } });
   }
+
+  return lead;
+};
+
+export const createBookingLead = asyncHandler(async (req, res) => {
+  const lead = await createBookingLeadRecord({
+    body: req.body,
+    user: req.user,
+    file: req.file
+  });
 
   return res.status(201).json({
     success: true,
