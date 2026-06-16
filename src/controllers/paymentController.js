@@ -1,11 +1,16 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
+import BookingLead from "../models/BookingLead.js";
+import Coupon from "../models/Coupon.js";
+import Package from "../models/Package.js";
+import Test from "../models/Test.js";
 import { createBookingLeadRecord } from "./bookingLeadController.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { couponDiscountAmount, isCouponUsable } from "../utils/couponUtils.js";
 
 function getRazorpayCredentials() {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const keyId = process.env.RAZORPAY_KEY_ID || process.env.KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET || process.env.KEY_SECRET;
 
   if (!keyId || !keySecret) {
     const error = new Error("Razorpay credentials are not configured.");
@@ -16,11 +21,25 @@ function getRazorpayCredentials() {
   return { keyId, keySecret };
 }
 
-function normalizeAmountToPaise(amount) {
-  const numericAmount = Number(amount);
+const parseJson = (value, fallback) => {
+  if (Array.isArray(value) || (value && typeof value === "object")) return value;
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const numeric = (value, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
+function normalizeAmountToPaise(amount, message = "A valid payment amount is required.") {
+  const numericAmount = numeric(amount);
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-    const error = new Error("A valid payment amount is required.");
+    const error = new Error(message);
     error.statusCode = 400;
     throw error;
   }
@@ -43,6 +62,91 @@ function sanitizeNotes(notes = {}) {
   }, {});
 }
 
+function getBookingBody(req) {
+  return req.body.bookingData || req.body.booking || req.body;
+}
+
+function getItemIdentity(item = {}) {
+  return {
+    id: String(item._id || item.id || item.testId || item.packageId || "").trim(),
+    name: String(item.name || item.title || item.testName || item.packageName || "").trim().toLowerCase()
+  };
+}
+
+function catalogPrice(record = {}) {
+  return numeric(record.finalPrice || record.discountedPrice || record.price || record.originalPrice);
+}
+
+async function calculateBookingAmount(bookingBody = {}) {
+  const items = parseJson(bookingBody.items, []);
+  const appliedCoupon = parseJson(bookingBody.appliedCoupon, null);
+
+  if (!Array.isArray(items) || !items.length) {
+    throw setErrorStatus(new Error("Selected test or package is required before payment."), 400);
+  }
+
+  const [tests, packages] = await Promise.all([
+    Test.find({ isActive: { $ne: false }, status: { $ne: "Inactive" } }).select("name testName finalPrice discountedPrice price originalPrice").lean(),
+    Package.find({ isActive: { $ne: false }, status: { $ne: "Inactive" } }).select("name packageName finalPrice discountedPrice price originalPrice").lean()
+  ]);
+  const byId = new Map();
+  const byName = new Map();
+
+  [...tests, ...packages].forEach((record) => {
+    const value = {
+      price: catalogPrice(record),
+      name: record.name || record.testName || record.packageName || "Selected Item"
+    };
+    byId.set(String(record._id), value);
+    [record.name, record.testName, record.packageName].filter(Boolean).forEach((name) => byName.set(String(name).trim().toLowerCase(), value));
+  });
+
+  const subtotal = items.reduce((total, item) => {
+    const identity = getItemIdentity(item);
+    const catalogItem = (identity.id && byId.get(identity.id)) || (identity.name && byName.get(identity.name));
+
+    if (!catalogItem || catalogItem.price <= 0) {
+      const error = new Error(`Unable to verify price for ${item.name || item.title || "selected item"}.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return total + catalogItem.price * Math.max(1, numeric(item.quantity, 1));
+  }, 0);
+
+  let couponDiscount = 0;
+  const couponCode = String(bookingBody.couponCode || appliedCoupon?.couponCode || "").trim().toUpperCase();
+
+  if (couponCode) {
+    const coupon = await Coupon.findOne({ couponCode }).lean();
+
+    if (!coupon || !isCouponUsable(coupon, subtotal)) {
+      throw setErrorStatus(new Error("Invalid or expired coupon code."), 400);
+    }
+
+    if (Array.isArray(coupon.applicableItems) && coupon.applicableItems.length) {
+      const allowed = coupon.applicableItems.map((item) => String(item).trim().toLowerCase()).filter(Boolean);
+      const hasApplicableItem = items.some((item) => allowed.includes(String(item.name || item.title || item.testName || item.packageName || "").trim().toLowerCase()));
+      if (!hasApplicableItem) {
+        throw setErrorStatus(new Error("Coupon is not applicable to selected tests or packages."), 400);
+      }
+    }
+
+    couponDiscount = couponDiscountAmount(coupon, subtotal);
+  }
+
+  const totalPayable = Math.max(0, subtotal - couponDiscount);
+  const amountPaise = normalizeAmountToPaise(totalPayable, "Unable to calculate a valid booking amount.");
+
+  return {
+    amount: amountPaise / 100,
+    amountPaise,
+    subtotal,
+    couponDiscount,
+    items
+  };
+}
+
 function setErrorStatus(error, fallbackStatusCode) {
   if (error.statusCode) {
     return error;
@@ -61,12 +165,13 @@ function timingSafeEqualString(left, right) {
 
 export const createRazorpayOrder = asyncHandler(async (req, res) => {
   const { keyId, keySecret } = getRazorpayCredentials();
-  const amount = normalizeAmountToPaise(req.body.amount);
+  const bookingBody = getBookingBody(req);
+  const { amountPaise } = await calculateBookingAmount(bookingBody);
   const currency = String(req.body.currency || "INR").toUpperCase();
   const receipt = sanitizeReceipt(req.body.receipt);
   const notes = sanitizeNotes(req.body.notes);
   const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
-  const order = await razorpay.orders.create({ amount, currency, receipt, notes });
+  const order = await razorpay.orders.create({ amount: amountPaise, currency, receipt, notes });
 
   return res.status(201).json({
     success: true,
@@ -85,7 +190,7 @@ export const createRazorpayOrder = asyncHandler(async (req, res) => {
 });
 
 export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
-  const { keySecret } = getRazorpayCredentials();
+  const { keyId, keySecret } = getRazorpayCredentials();
   const { razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: signature } = req.body;
 
   if (!orderId || !paymentId || !signature) {
@@ -99,21 +204,58 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
   }
 
   const bookingBody = req.body.bookingData || req.body.booking || req.body;
-  const booking = await createBookingLeadRecord({
-    body: {
-      ...bookingBody,
-      paymentMethod: bookingBody.paymentMethod || req.body.paymentMethod || "Razorpay",
-      paymentId,
-      source: bookingBody.source || "razorpay-checkout"
-    },
-    user: req.user,
-    overrides: {
-      paymentMethod: bookingBody.paymentMethod || req.body.paymentMethod || "Razorpay",
-      paymentStatus: "Paid",
-      bookingStatus: "Confirmed",
-      paymentId
-    }
-  });
+  const { amount, amountPaise, subtotal, couponDiscount } = await calculateBookingAmount(bookingBody);
+  const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+  const order = await razorpay.orders.fetch(orderId);
+
+  if (numeric(order?.amount) !== amountPaise) {
+    throw setErrorStatus(new Error("Payment amount verification failed."), 400);
+  }
+
+  const paymentFields = {
+    paymentMethod: bookingBody.paymentMethod || req.body.paymentMethod || "Razorpay",
+    paymentStatus: "Paid",
+    bookingStatus: "Confirmed",
+    paymentProvider: "Razorpay",
+    paymentId,
+    razorpay_order_id: orderId,
+    razorpay_payment_id: paymentId,
+    paidAmount: amount,
+    paidAt: new Date(),
+    totalPayable: amount
+  };
+  let booking = null;
+  const bookingId = bookingBody.bookingId || req.body.bookingId;
+
+  if (bookingId) {
+    booking = await BookingLead.findOneAndUpdate(
+      { bookingId, userId: req.user._id },
+      { $set: paymentFields },
+      { new: true }
+    );
+  }
+
+  if (!booking) {
+    booking = await createBookingLeadRecord({
+      body: {
+        ...bookingBody,
+        totalPayable: amount,
+        subtotal,
+        couponDiscount,
+        summary: JSON.stringify({
+          ...parseJson(bookingBody.summary, {}),
+          subtotal,
+          couponDiscount,
+          totalPayable: amount
+        }),
+        paymentMethod: paymentFields.paymentMethod,
+        paymentId,
+        source: bookingBody.source || "razorpay-checkout"
+      },
+      user: req.user,
+      overrides: paymentFields
+    });
+  }
 
   return res.json({
     success: true,
