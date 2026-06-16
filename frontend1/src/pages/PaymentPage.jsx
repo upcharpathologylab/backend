@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { createBookingLead, createRazorpayOrder, getUserAddresses, getUserProfile, verifyRazorpayPayment } from "../api/api.js";
 import CardPaymentForm from "../components/payment/CardPaymentForm.jsx";
@@ -124,7 +124,6 @@ const razorpayMethodOptions = {
 
 function PaymentPage() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [selectedMethod, setSelectedMethod] = useState("card");
   const [loading, setLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
@@ -133,8 +132,7 @@ function PaymentPage() {
 
   useEffect(() => {
     document.title = "Payment | Upchar Pathology";
-    const routeData = location.state?.checkoutData || location.state?.checkout || location.state?.cart || null;
-    const data = routeData?.items?.length ? saveCheckoutData(routeData.items, routeData.summary, routeData.appliedCoupon) : getCheckoutData();
+    const data = getCheckoutData();
     setCheckoutData(data);
     setCustomer(getCheckoutCustomer());
     if (data.items.length) {
@@ -143,7 +141,7 @@ function PaymentPage() {
     if (!getStoredUser()) {
       navigate(`/?auth=signin&returnTo=${encodeURIComponent("/payment")}`, { replace: true });
     }
-  }, [location.state, navigate]);
+  }, []);
 
   const paymentMode = useMemo(() => {
     const method = paymentMethods.find((item) => item.id === selectedMethod);
@@ -151,13 +149,12 @@ function PaymentPage() {
     if (method.id === "upi") return "UPI";
     return method.label;
   }, [selectedMethod]);
-  const paymentItems = useMemo(() => checkoutData.items || [], [checkoutData.items]);
 
   const handlePayment = async () => {
-    if (!paymentItems.length || loading) return;
+    if (!checkoutData.items.length || loading) return;
 
     if (!getStoredUser()) {
-      saveCheckoutData(paymentItems, checkoutData.summary);
+      saveCheckoutData(checkoutData.items, checkoutData.summary);
       navigate(`/?auth=signin&returnTo=${encodeURIComponent("/payment")}`);
       return;
     }
@@ -182,13 +179,7 @@ function PaymentPage() {
         pincode: primaryAddress?.pincode || "",
         city: primaryAddress?.city || ""
       };
-      const selectedTestOrPackage = paymentItems.map((item) => `${item.name || item.title} x ${item.quantity}`).join(", ");
-      const payloadItems = paymentItems.map((item) => ({
-        ...item,
-        itemId: item.itemId || item._id || item.id || item.testId || item.packageId,
-        itemType: item.itemType || item.type || "test",
-        payableAmount: Number(item.price || item.discountedPrice || item.finalPrice || 0) * Number(item.quantity || 1)
-      }));
+      const selectedTestOrPackage = checkoutData.items.map((item) => `${item.name || item.title} x ${item.quantity}`).join(", ");
       const bookingPayload = {
         fullName: bookingCustomer.name,
         mobile: bookingCustomer.phone.replace(/\D/g, "").slice(-10),
@@ -200,52 +191,34 @@ function PaymentPage() {
         timeSlot: bookingCustomer.timeSlot,
         city: bookingCustomer.city || "",
         selectedTestOrPackage,
-        items: JSON.stringify(payloadItems),
+        items: JSON.stringify(checkoutData.items),
         summary: JSON.stringify(checkoutData.summary),
         appliedCoupon: JSON.stringify(checkoutData.appliedCoupon || null),
-        cartId: checkoutData.cartId || "",
-        bookingId: checkoutData.bookingId || "",
-        orderId: checkoutData.orderId || "",
         quantity: checkoutData.summary.itemCount,
         subtotal: checkoutData.summary.subtotal,
         discount: checkoutData.summary.totalSavings,
         couponCode: checkoutData.appliedCoupon?.couponCode || "",
         couponName: checkoutData.appliedCoupon?.couponName || checkoutData.appliedCoupon?.title || "",
         couponDiscount: checkoutData.summary.couponDiscount,
-        totalPayable: checkoutData.summary.totalPayable,
-        payableAmount: checkoutData.summary.totalPayable
+        totalPayable: checkoutData.summary.totalPayable
       };
 
       if (selectedMethod !== "cod") {
-        const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
-
-        if (!razorpayKey) {
-          throw new Error("Razorpay key is not configured.");
-        }
-
-        const razorpayBookingData = {
-          ...bookingPayload,
-          paymentMethod: paymentMode,
-          source: "razorpay-checkout"
-        };
         const order = await createRazorpayOrder({
+          amount: checkoutData.summary.totalPayable,
           currency: "INR",
           receipt: `upchar_${Date.now()}`,
           notes: {
             itemCount: checkoutData.summary.itemCount,
             paymentMode,
-            source: "checkout-page",
-            cartId: checkoutData.cartId || "",
-            bookingId: checkoutData.bookingId || "",
-            orderId: checkoutData.orderId || ""
-          },
-          bookingData: razorpayBookingData
+            source: "checkout-page"
+          }
         });
 
         await loadRazorpayCheckout();
 
         const paymentResponse = await openRazorpayCheckout({
-          key: razorpayKey,
+          key: order.key_id || order.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID,
           amount: order.amount,
           currency: order.currency,
           name: "Upchar Pathology",
@@ -271,11 +244,15 @@ function PaymentPage() {
           razorpay_payment_id: paymentResponse.razorpay_payment_id,
           razorpay_signature: paymentResponse.razorpay_signature,
           paymentMethod: paymentMode,
-          bookingData: razorpayBookingData
+          bookingData: {
+            ...bookingPayload,
+            paymentMethod: paymentMode,
+            source: "razorpay-checkout"
+          }
         });
 
         const booking = createBookingData({
-          items: paymentItems,
+          items: checkoutData.items,
           summary: checkoutData.summary,
           status: "paid",
           paymentMode,
@@ -301,7 +278,7 @@ function PaymentPage() {
 
       const booking = {
         ...createBookingData({
-          items: paymentItems,
+          items: checkoutData.items,
           summary: checkoutData.summary,
           status: "pending",
           paymentMode: "Cash on Delivery",
@@ -357,7 +334,7 @@ function PaymentPage() {
             </div>
           ) : null}
 
-          {summary && paymentItems.length ? (
+          {summary && checkoutData.items.length ? (
             <>
               <div className="mt-7 grid gap-6 xl:grid-cols-[1fr_390px]">
                 <section className="rounded-lg border border-blue-100 bg-white p-5 shadow-sm lg:p-6">
@@ -378,7 +355,7 @@ function PaymentPage() {
                   </div>
                 </section>
 
-                <PaymentOrderSummary items={paymentItems} summary={summary} />
+                <PaymentOrderSummary items={checkoutData.items} summary={summary} />
               </div>
 
               <PaymentTrustSection />

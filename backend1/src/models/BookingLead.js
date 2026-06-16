@@ -3,8 +3,6 @@ import mongoose from "mongoose";
 const bookingLeadSchema = new mongoose.Schema(
   {
     bookingId: { type: String, trim: true, unique: true, sparse: true },
-    cartId: { type: String, trim: true, default: "" },
-    orderId: { type: String, trim: true, default: "" },
     bookingType: { type: String, enum: ["Guest", "User"], default: "User", index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     fullName: { type: String, required: true, trim: true },
@@ -30,11 +28,6 @@ const bookingLeadSchema = new mongoose.Schema(
     totalPayable: { type: Number, default: 0 },
     paymentMethod: { type: String, trim: true, default: "Pay Later" },
     paymentId: { type: String, trim: true, default: "" },
-    paymentProvider: { type: String, trim: true, default: "" },
-    razorpay_order_id: { type: String, trim: true, default: "" },
-    razorpay_payment_id: { type: String, trim: true, default: "" },
-    paidAmount: { type: Number, default: 0 },
-    paidAt: { type: Date, default: null },
     paymentStatus: { type: String, trim: true, default: "Pending" },
     bookingStatus: { type: String, trim: true, default: "Pending Confirmation" },
     prescriptionFile: { type: String, default: "" },

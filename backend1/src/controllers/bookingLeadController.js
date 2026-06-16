@@ -145,8 +145,6 @@ export const createBookingLeadRecord = async ({ body = {}, user, file = null, ov
   const mobileNumber = mobile;
   const lead = await BookingLead.create({
     bookingId: body.bookingId || generateBookingId(),
-    cartId: body.cartId || "",
-    orderId: body.orderId || "",
     bookingType: "User",
     userId: user._id,
     fullName: customerName,
@@ -169,17 +167,12 @@ export const createBookingLeadRecord = async ({ body = {}, user, file = null, ov
     couponName: body.couponName || appliedCoupon?.couponName || appliedCoupon?.title || "",
     couponDiscount: numeric(body.couponDiscount ?? summary.couponDiscount ?? appliedCoupon?.discountAmount),
     appliedCoupon,
-    totalPayable: numeric(overrides.totalPayable ?? body.totalPayable ?? summary.totalPayable),
+    totalPayable: numeric(body.totalPayable ?? summary.totalPayable),
     paymentMethod: overrides.paymentMethod || body.paymentMethod || "Pay Later",
     paymentStatus: overrides.paymentStatus || body.paymentStatus || "Pay Later",
     bookingStatus: overrides.bookingStatus || body.bookingStatus || "Confirmed",
     source: source || "home-page",
     paymentId: overrides.paymentId || body.paymentId || "",
-    paymentProvider: overrides.paymentProvider || body.paymentProvider || "",
-    razorpay_order_id: overrides.razorpay_order_id || body.razorpay_order_id || "",
-    razorpay_payment_id: overrides.razorpay_payment_id || body.razorpay_payment_id || "",
-    paidAmount: numeric(overrides.paidAmount ?? body.paidAmount),
-    paidAt: overrides.paidAt || body.paidAt || null,
     prescriptionFile: file ? `/uploads/prescriptions/${file.filename}` : ""
   });
 

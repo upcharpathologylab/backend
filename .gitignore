@@ -5,9 +5,13 @@ dist
 build
 uploads
 backend/uploads/*
+backend1/uploads/*
 !backend/uploads/.gitkeep
 !backend/uploads/prescriptions/.gitkeep
+!backend1/uploads/.gitkeep
+!backend1/uploads/prescriptions/.gitkeep
 .npm-cache
 /frontend/fontend/
+/frontend1/fontend/
 *.log
 npm-debug.log*

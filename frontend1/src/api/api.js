@@ -170,12 +170,12 @@ export async function createContactMessage(values) {
 }
 
 export async function createRazorpayOrder(values) {
-  const response = await api.post("/payments/razorpay/create-order", values, getAuthConfig());
+  const response = await api.post("/payment/create-order", values, getAuthConfig());
   return response.data?.data || response.data;
 }
 
 export async function verifyRazorpayPayment(values) {
-  const response = await api.post("/payments/razorpay/verify", values, getAuthConfig());
+  const response = await api.post("/payment/verify", values, getAuthConfig());
   return response.data?.data || response.data;
 }
 

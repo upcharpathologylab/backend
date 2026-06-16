@@ -27,15 +27,9 @@ const getSessionStorage = () => (typeof window === "undefined" ? null : window.s
 export const normalizeCheckoutItem = (item) => {
   const price = item.price ?? item.discountedPrice ?? item.finalPrice ?? 0;
   const oldPrice = item.oldPrice ?? item.originalPrice ?? item.price ?? price;
-  const itemType = String(item.itemType || item.type || item.resultType || "test").toLowerCase();
-  const itemId = item.itemId || item._id || item.id || item.testId || item.packageId || item.name || item.title;
 
   return {
     ...item,
-    id: item.id || itemId,
-    itemId,
-    itemType,
-    type: item.type || itemType,
     price,
     oldPrice,
     subtitle: item.subtitle || item.testCount || item.testsIncluded || "Health item",
