@@ -1,7 +1,7 @@
 import crypto from "crypto";
+import Razorpay from "razorpay";
+import { createBookingLeadRecord } from "./bookingLeadController.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-
-const RAZORPAY_API_BASE_URL = "https://api.razorpay.com/v1";
 
 function getRazorpayCredentials() {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -65,39 +65,21 @@ export const createRazorpayOrder = asyncHandler(async (req, res) => {
   const currency = String(req.body.currency || "INR").toUpperCase();
   const receipt = sanitizeReceipt(req.body.receipt);
   const notes = sanitizeNotes(req.body.notes);
-  const authorization = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
-
-  const razorpayResponse = await fetch(`${RAZORPAY_API_BASE_URL}/orders`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${authorization}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      amount,
-      currency,
-      receipt,
-      notes
-    })
-  });
-
-  const razorpayData = await razorpayResponse.json().catch(() => ({}));
-
-  if (!razorpayResponse.ok) {
-    const description = razorpayData?.error?.description || razorpayData?.error?.reason || "Unable to create Razorpay order.";
-    throw setErrorStatus(new Error(description), razorpayResponse.status >= 500 ? 502 : 400);
-  }
+  const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+  const order = await razorpay.orders.create({ amount, currency, receipt, notes });
 
   return res.status(201).json({
     success: true,
     message: "Razorpay order created successfully.",
     data: {
       keyId,
-      orderId: razorpayData.id,
-      amount: razorpayData.amount,
-      currency: razorpayData.currency,
-      receipt: razorpayData.receipt,
-      status: razorpayData.status
+      key_id: keyId,
+      order_id: order.id,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      receipt: order.receipt,
+      status: order.status
     }
   });
 });
@@ -116,13 +98,31 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
     throw setErrorStatus(new Error("Payment verification failed."), 400);
   }
 
+  const bookingBody = req.body.bookingData || req.body.booking || req.body;
+  const booking = await createBookingLeadRecord({
+    body: {
+      ...bookingBody,
+      paymentMethod: bookingBody.paymentMethod || req.body.paymentMethod || "Razorpay",
+      paymentId,
+      source: bookingBody.source || "razorpay-checkout"
+    },
+    user: req.user,
+    overrides: {
+      paymentMethod: bookingBody.paymentMethod || req.body.paymentMethod || "Razorpay",
+      paymentStatus: "Paid",
+      bookingStatus: "Confirmed",
+      paymentId
+    }
+  });
+
   return res.json({
     success: true,
     message: "Payment verified successfully.",
     data: {
       verified: true,
       orderId,
-      paymentId
+      paymentId,
+      booking
     }
   });
 });

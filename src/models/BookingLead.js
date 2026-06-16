@@ -27,6 +27,7 @@ const bookingLeadSchema = new mongoose.Schema(
     appliedCoupon: { type: mongoose.Schema.Types.Mixed, default: null },
     totalPayable: { type: Number, default: 0 },
     paymentMethod: { type: String, trim: true, default: "Pay Later" },
+    paymentId: { type: String, trim: true, default: "" },
     paymentStatus: { type: String, trim: true, default: "Pending" },
     bookingStatus: { type: String, trim: true, default: "Pending Confirmation" },
     prescriptionFile: { type: String, default: "" },

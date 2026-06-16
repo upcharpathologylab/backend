@@ -1398,7 +1398,34 @@ export const listTests = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: docs.map(testAdminShape) });
 });
 export const createTest = createOne(TestModel, testPayload, testAdminShape);
-export const updateTest = updateOne(TestModel, testPayload, testAdminShape);
+export const updateTest = asyncHandler(async (req, res) => {
+  if (!ensureDatabase(res)) return;
+
+  const existing = await TestModel.findById(req.params.id).lean();
+  if (!existing) {
+    return res.status(404).json({ success: false, message: "Content item not found." });
+  }
+
+  const body = { ...req.body };
+  const hasImage = Object.prototype.hasOwnProperty.call(body, "image");
+  const hasTestImage = Object.prototype.hasOwnProperty.call(body, "testImage");
+
+  if (!hasImage && !hasTestImage) {
+    body.image = existing.image || existing.testImage || "";
+    body.testImage = existing.testImage || existing.image || "";
+  } else if (hasTestImage && !hasImage) {
+    body.image = body.testImage;
+  } else if (hasImage && !hasTestImage) {
+    body.testImage = body.image;
+  }
+
+  const doc = await TestModel.findByIdAndUpdate(req.params.id, testPayload(body), {
+    new: true,
+    runValidators: true
+  }).lean();
+
+  return res.json({ success: true, data: testAdminShape(doc) });
+});
 export const deleteTest = deleteOne(TestModel);
 
 export const listTestCategories = listAll(TestCategory, toAdminId);
